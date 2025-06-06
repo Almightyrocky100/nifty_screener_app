@@ -1,88 +1,83 @@
 import streamlit as st
 import pandas as pd
-import yfinance as yf
 import plotly.express as px
+from nsepython import *
 
 st.set_page_config(layout="wide")
-st.title("📈 Nifty Screener + Option Chain Analyzer + Weightage Heatmap")
+st.title("📊 Nifty Option Chain + India VIX + Weightage Heatmap")
 
-# --- Fetch India VIX using yfinance ---
-def fetch_india_vix_yf():
-    try:
-        vix_ticker = "^INDIAVIX"
-        vix = yf.Ticker(vix_ticker)
-        data = vix.history(period="1d")
-        if not data.empty:
-            last_vix = data['Close'].iloc[-1]
-            return round(last_vix, 2)
-        return None
-    except Exception:
-        return None
-
-vix = fetch_india_vix_yf()
+# --- Fetch India VIX ---
+vix = get_vix()
 if vix:
-    st.metric("India VIX (Volatility Index)", f"{vix}")
+    st.metric("India VIX (Volatility Index)", vix)
 else:
-    st.warning("India VIX data unavailable")
+    st.warning("India VIX data not available")
 
-# --- Fetch Option Chain Data for Nifty from yfinance ---
-nifty = yf.Ticker("^NSEI")  # Nifty 50 index symbol in yfinance
-
-expiries = nifty.options
-if not expiries:
-    st.error("No option expiry data found for Nifty via yfinance.")
+# --- Fetch Nifty Option Chain ---
+option_data = nse_optionchain_scrapper('NIFTY')
+if not option_data:
+    st.error("Option chain data not available")
 else:
-    expiry = st.selectbox("Select Expiry Date", expiries)
-    opt_chain = nifty.option_chain(expiry)
+    df_calls = pd.DataFrame(option_data['records']['data'])
     
-    # Use calls dataframe for analysis
-    df_calls = opt_chain.calls.copy()
-    df_calls['Price Change'] = df_calls['lastPrice'].diff().fillna(0)
-    df_calls['OI Change'] = df_calls['openInterest'].diff().fillna(0)
-
-    def classify_trend(price_change, oi_change):
-        if price
-import streamlit as st
-import pandas as pd
-import yfinance as yf
-import plotly.express as px
-
-st.set_page_config(layout="wide")
-st.title("📈 Nifty Screener + Option Chain Analyzer + Weightage Heatmap")
-
-# --- Fetch India VIX using yfinance ---
-def fetch_india_vix_yf():
-    try:
-        vix_ticker = "^INDIAVIX"
-        vix = yf.Ticker(vix_ticker)
-        data = vix.history(period="1d")
-        if not data.empty:
-            last_vix = data['Close'].iloc[-1]
-            return round(last_vix, 2)
-        return None
-    except Exception:
-        return None
-
-vix = fetch_india_vix_yf()
-if vix:
-    st.metric("India VIX (Volatility Index)", f"{vix}")
-else:
-    st.warning("India VIX data unavailable")
-
-# --- Fetch Option Chain Data for Nifty from yfinance ---
-nifty = yf.Ticker("^NSEI")  # Nifty 50 index symbol in yfinance
-
-expiries = nifty.options
-if not expiries:
-    st.error("No option expiry data found for Nifty via yfinance.")
-else:
-    expiry = st.selectbox("Select Expiry Date", expiries)
-    opt_chain = nifty.option_chain(expiry)
+    # Extract relevant call options data
+    calls = []
+    for row in df_calls:
+        if 'CE' in row and row['CE'] is not None:
+            ce = row['CE']
+            calls.append({
+                'strikePrice': row['strikePrice'],
+                'lastPrice': ce.get('lastPrice', 0),
+                'openInterest': ce.get('openInterest', 0),
+                'changeinOpenInterest': ce.get('changeinOpenInterest', 0),
+                'volume': ce.get('totalTradedVolume', 0),
+                'impliedVolatility': ce.get('impliedVolatility', 0)
+            })
+    df_calls = pd.DataFrame(calls)
     
-    # Use calls dataframe for analysis
-    df_calls = opt_chain.calls.copy()
-    df_calls['Price Change'] = df_calls['lastPrice'].diff().fillna(0)
-    df_calls['OI Change'] = df_calls['openInterest'].diff().fillna(0)
+    st.subheader("Nifty Call Option Chain")
+    st.dataframe(df_calls)
 
-    def classify_trend(price_change, oi_change):
-        if price
+    # Simple Trend classification based on OI change and price change
+    def classify_trend(row):
+        if row['changeinOpenInterest'] > 0 and row['lastPrice'] > 0:
+            return "Long Buildup"
+        elif row['changeinOpenInterest'] > 0 and row['lastPrice'] <= 0:
+            return "Short Buildup"
+        elif row['changeinOpenInterest'] < 0 and row['lastPrice'] > 0:
+            return "Short Covering"
+        elif row['changeinOpenInterest'] < 0 and row['lastPrice'] <= 0:
+            return "Long Unwinding"
+        else:
+            return "Neutral"
+
+    df_calls['Trend'] = df_calls.apply(classify_trend, axis=1)
+    trend_filter = st.selectbox("Filter by Trend", ["All"] + df_calls['Trend'].unique().tolist())
+    if trend_filter != "All":
+        df_calls = df_calls[df_calls['Trend'] == trend_filter]
+
+    st.dataframe(df_calls[['strikePrice', 'lastPrice', 'openInterest', 'changeinOpenInterest', 'volume', 'impliedVolatility', 'Trend']])
+
+# --- Nifty 50 Weightage Heatmap ---
+st.markdown("---")
+st.header("🔥 Nifty 50 Stocks Weightage Heatmap")
+
+# Approximate weights - update as per latest official data
+data = {
+    "Ticker": [
+        "RELIANCE", "TCS", "HDFCBANK", "INFY", "HDFC", "ICICIBANK", "KOTAKBANK",
+        "HINDUNILVR", "SBIN", "BHARTIARTL", "ITC", "ASIANPAINT", "AXISBANK", "LT",
+        "MARUTI", "SUNPHARMA", "BAJFINANCE", "WIPRO", "NESTLEIND", "TITAN",
+        "ULTRACEMCO", "DIVISLAB", "JSWSTEEL", "POWERGRID", "TECHM", "ONGC",
+        "ADANIGREEN", "HCLTECH", "TATASTEEL", "BRITANNIA", "M&M", "EICHERMOT",
+        "DRREDDY", "COALINDIA", "HDFCLIFE", "INDUSINDBK", "CIPLA", "HEROMOTOCO",
+        "BAJAJFINSV", "BPCL", "GRASIM", "HINDALCO", "SHREECEM", "TATAMOTORS",
+        "ICICIPRULI", "SBILIFE", "UPL", "BIOCON", "VEDL"
+    ],
+    "Weightage": [
+        13.5, 8.3, 7.0, 6.5, 5.0, 4.3, 3.2,
+        3.0, 2.8, 2.5, 2.0, 1.8, 1.7, 1.5,
+        1.5, 1.4, 1.3, 1.3, 1.2, 1.1,
+        1.0, 0.9, 0.9, 0.8, 0.8, 0.7,
+        0.6, 0.6, 0.6, 0.5, 0.5, 0.5,
+        0.5, 0.4, 0.4, 0.4, 0.4,
