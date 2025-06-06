@@ -3,6 +3,7 @@ import pandas as pd
 import plotly.express as px
 from nsepython import get_vix, nse_optionchain_scrapper
 
+
 st.set_page_config(layout="wide")
 st.title("📊 Nifty Option Chain + India VIX + Weightage Heatmap")
 
