@@ -1,6 +1,3 @@
-# NOTE: This version is for environments where Streamlit is not installed.
-# It gracefully warns the user instead of failing with ImportError.
-
 try:
     import streamlit as st
     import pandas as pd
@@ -25,7 +22,14 @@ def fetch_option_chain():
     session = requests.Session()
     session.get(NSE_URL, headers=HEADERS)
     response = session.get(OC_URL, headers=HEADERS)
-    data = response.json()
+    st.write("Status code:", response.status_code)
+    st.write("Response snippet:", response.text[:500])
+    try:
+        data = response.json()
+    except Exception as e:
+        st.error(f"JSON decode error: {e}")
+        st.error(f"Response text snippet: {response.text[:500]}")
+        st.stop()
     return data['records']['data']
 
 @st.cache_data(ttl=300)
@@ -34,10 +38,17 @@ def fetch_india_vix():
     session = requests.Session()
     session.get(NSE_URL, headers=HEADERS)
     response = session.get(url, headers=HEADERS)
-    data = response.json()
-    for index in data['marketState']:
-        if index['index'] == "India VIX":
-            return float(index['last'])
+    if response.status_code != 200:
+        st.warning(f"Failed to fetch India VIX data: HTTP {response.status_code}")
+        return None
+    try:
+        data = response.json()
+    except Exception as e:
+        st.warning(f"JSON decode error for India VIX: {e}")
+        return None
+    for index in data.get('marketState', []):
+        if index.get('index') == "India VIX":
+            return float(index.get('last', 0))
     return None
 
 # Classify Trend Based on OI and Price
@@ -62,7 +73,7 @@ with st.spinner("Fetching live data from NSE..."):
     vix = fetch_india_vix()
 
 # India VIX Display
-if vix:
+if vix is not None:
     st.metric("India VIX (Volatility Index)", f"{vix:.2f}")
 else:
     st.warning("India VIX data unavailable")
